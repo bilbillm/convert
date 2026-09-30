@@ -389,3 +389,22 @@ def convert(file: UploadFile = File(...), target_format: str = Form(...)) -> Fil
     except Exception as exc:
         shutil.rmtree(workdir, ignore_errors=True)
         raise HTTPException(500, "转换服务暂时不可用，请稍后再试。") from exc
+
+
+def convert_path(source: Path, target: str, workdir: Path) -> Path:
+    extension = extension_of(source.name)
+    family = family_of(extension)
+    with CONVERSION_SLOTS:
+        if family == 'image':
+            return image_convert(source, extension, target, workdir)
+        if family == 'pdf':
+            if target == 'txt':
+                output = workdir / 'converted.txt'
+                run_tool(['pdftotext', '-layout', str(source), str(output)])
+                return output
+            return pdf_first_page_image(source, target, workdir)
+        return document_convert(source, extension, target, family, workdir)
+
+
+from jobs import install
+install(app, convert_path, extension_of, target_formats, safe_download_stem)
