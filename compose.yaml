@@ -1,0 +1,38 @@
+services:
+  convert:
+    image: lumo-convert:local
+    build:
+      context: .
+      secrets:
+        - proxy_ca
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      HOME: /tmp
+      TMPDIR: /tmp
+      DATA_DIR: /data
+      CONVERSION_WORKERS: "2"
+      CONVERSION_TIMEOUT_SECONDS: "600"
+    volumes:
+      - conversion_data:/data
+    networks:
+      - conversion
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 5g
+    cpus: 1.8
+volumes:
+  conversion_data:
+networks:
+  conversion:
+    internal: true
+
+secrets:
+  proxy_ca:
+    file: ${BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}

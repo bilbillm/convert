@@ -39,3 +39,5 @@ docker compose -f compose.yaml -f compose.public.yaml up --build -d
 ```
 
 Point DNS host `convert` to a verified stable public IP (A record), or to a supported hostname (CNAME). This workspace currently exposes private addresses; no stable public ingress has been confirmed. Do not point the domain to an unrelated host or claim production is live without checking it externally. Keeping this workspace running and retaining its disk is required for availability.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, `nohup ./scripts/serve.sh > service.log 2>&1 </dev/null &` starts a restart loop. This does not provide a persistent public ingress or keep the managed workspace alive.
