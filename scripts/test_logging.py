@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,40 @@ from observability import RequestLogging, JsonFormatter, event, request_id
 
 
 class LogTests(unittest.TestCase):
+    def test_interrupted_job_recovery(self):
+        from jobs import install
+        class FakeApp:
+            routes = {}
+            def get(self, path, **kwargs):
+                return lambda fn: self.routes.setdefault(path, fn)
+            def post(self, path, **kwargs):
+                return lambda fn: fn
+        with tempfile.TemporaryDirectory() as data:
+            os.environ['DATA_DIR'] = data
+            root = Path(data)
+            for jid, status in [('a'*32, 'running'), ('b'*32, 'done')]:
+                folder = root / jid
+                folder.mkdir()
+                value = {'id': jid, 'status': status, 'created': time.time(),
+                         'filename': 'private-document.md', 'target': 'docx'}
+                if status == 'done':
+                    value['result'] = 'converted.docx'
+                    (folder / 'converted.docx').write_bytes(b'completed-result')
+                else:
+                    (folder / 'source.md').write_bytes(b'private-original')
+                (folder / 'job.json').write_text(json.dumps(value))
+            app = FakeApp()
+            install(app, None, None, None, None)
+            status = app.routes['/api/jobs/{job_id}']
+            self.assertEqual(status('a'*32)['status'], 'error')
+            self.assertFalse((root / ('a'*32) / 'source.md').exists())
+            self.assertEqual(status('b'*32)['status'], 'done')
+            self.assertTrue((root / ('b'*32) / 'converted.docx').exists())
+            lines = (Path(temp.name) / 'jobs.jsonl').read_text()
+            self.assertNotIn('private-', lines)
+            self.assertIn('job.interrupted', lines)
+            os.environ.pop('DATA_DIR')
+
     def test_stream_and_privacy(self):
         async def app(scope, receive, send):
             scope['route'] = type('Route', (), {'path': '/api/jobs/{job_id}'})()

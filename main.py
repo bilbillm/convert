@@ -138,6 +138,15 @@ def log_shutdown():
     event("app", "application.stopping")
 
 
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    rid = getattr(request.state, 'request_id', None)
+    event('app', 'application.exception', level=logging.ERROR,
+          exc_info=(type(exc), exc, exc.__traceback__), request_id=rid)
+    return JSONResponse({'detail': '服务暂时不可用，请稍后重试。', 'request_id': rid},
+                        status_code=500, headers={'X-Request-ID': rid} if rid else {})
+
+
 class ConversionError(Exception):
     def __init__(self, message: str, status_code: int = 422):
         self.message = message

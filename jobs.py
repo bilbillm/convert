@@ -46,6 +46,13 @@ def install(app, converter, extension_of, target_formats, safe_stem):
                 if job['status'] in {'uploading', 'queued', 'running'}:
                     job.update(status='error', error='服务重启中断了此任务，请重新上传。', finished=time.time())
                     save(job)
+                    for child in path.parent.iterdir():
+                        if child.name == 'job.json':
+                            continue
+                        if child.is_dir():
+                            shutil.rmtree(child, ignore_errors=True)
+                        else:
+                            child.unlink(missing_ok=True)
                     event('jobs', 'job.interrupted', level=logging.ERROR, job_id=job['id'])
                 jobs[job['id']] = job
                 event('jobs', 'job.restored', job_id=job['id'], status=job['status'])
@@ -57,6 +64,7 @@ def install(app, converter, extension_of, target_formats, safe_stem):
     for folder in root.iterdir():
         if folder.is_dir() and not (folder / 'job.json').exists():
             shutil.rmtree(folder, ignore_errors=True)
+            event('jobs', 'upload.orphan_removed')
 
     def process(job, source, folder):
         rt = request_id.set(job.get('request_id'))

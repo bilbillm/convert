@@ -2,6 +2,7 @@
 import logging
 import os
 import signal
+import shutil
 import subprocess
 import threading
 import time
@@ -72,6 +73,10 @@ def main():
             if process is not None and process.poll() is not None:
                 event('runtime', 'service.exited', level=logging.ERROR, service=name,
                       exit_code=process.returncode, child_pid=process.pid)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 children.pop(name)
                 retry[name] = now + 3
             if name not in children and now >= retry[name]:
@@ -92,6 +97,7 @@ def main():
             except Exception:
                 healthy = False
             failures = 0 if healthy else failures + 1
+            event('runtime', 'resources.disk', free_bytes=shutil.disk_usage(os.getenv('DATA_DIR', '/tmp')).free)
             event('runtime', 'health.local', level=logging.INFO if healthy else logging.ERROR,
                   healthy=healthy, consecutive_failures=failures)
             if failures >= 3 and children.get('app'):

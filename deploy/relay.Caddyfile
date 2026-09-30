@@ -15,6 +15,7 @@ convert.lumoren.cn {
                 request>remote_ip delete
                 request>client_ip delete
                 resp_headers>Set-Cookie delete
+                resp_headers>Content-Disposition delete
             }
         }
     }
