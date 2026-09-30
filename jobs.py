@@ -165,3 +165,11 @@ def install(app, converter, extension_of, target_formats, safe_stem):
         except Exception:
             path.unlink(missing_ok=True)
             raise
+
+    @app.get('/api/archive')
+    def archive_get(jobs: str):
+        try:
+            body = ArchiveRequest(jobs=jobs.split(','))
+        except ValueError:
+            raise HTTPException(400, '一次打包需要 1 到 500 个任务。')
+        return archive(body)
