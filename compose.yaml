@@ -12,10 +12,12 @@ services:
       HOME: /tmp
       TMPDIR: /tmp
       DATA_DIR: /data
+      LOG_DIR: /logs
       CONVERSION_WORKERS: "2"
       CONVERSION_TIMEOUT_SECONDS: "600"
     volumes:
       - conversion_data:/data
+      - conversion_logs:/logs
     networks:
       - conversion
     read_only: true
@@ -29,6 +31,7 @@ services:
     cpus: 1.8
 volumes:
   conversion_data:
+  conversion_logs:
 networks:
   conversion:
     internal: true

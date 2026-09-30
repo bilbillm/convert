@@ -1,0 +1,28 @@
+services:
+  convert:
+    container_name: lumo-convert-workspace
+    user: "1000:1000"
+    environment:
+      TUNNEL_ENABLED: "1"
+      LOG_DIR: /logs
+      CONVERT_SECRET_DIR: /run/convert-secrets
+      CHISEL_BIN: /usr/local/bin/chisel
+      SSL_CERT_FILE: /run/ca-certificates.crt
+    volumes:
+      - ./data:/data
+      - ./logs:/logs
+      - ./.secrets:/run/convert-secrets:ro
+      - ./.local/bin/chisel:/usr/local/bin/chisel:ro
+      - /etc/ssl/certs/ca-certificates.crt:/run/ca-certificates.crt:ro
+    extra_hosts:
+      - "proxy:${CONVERT_PROXY_IP:?Set CONVERT_PROXY_IP from getent hosts proxy}"
+    networks:
+      conversion:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+networks:
+  conversion:
+    internal: false
