@@ -1,0 +1,18 @@
+# Append this site to the existing public Caddy configuration.
+# Caddy and lumo-convert-tunnel share a dedicated internal Docker network.
+convert.lumoren.cn {
+    encode zstd gzip
+    header {
+        -Server
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+    }
+    handle /_lumo_tunnel {
+        reverse_proxy lumo-convert-tunnel:19001
+    }
+    handle {
+        reverse_proxy lumo-convert-tunnel:18000 {
+            flush_interval -1
+        }
+    }
+}

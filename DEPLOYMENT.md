@@ -1,31 +1,65 @@
-# Current deployment status
+# Deployment
 
-The application runs in **this managed workspace**, on port 8000. It is not deployed on the Alibaba Cloud server. The public repository is https://github.com/bilbillm/convert.
+Public URL: **https://convert.lumoren.cn/**
+Source: https://github.com/bilbillm/convert
 
-## Start in this workspace
+## Where the application runs
 
-The required conversion tools and Python dependencies are installed here. A process supervisor can restart the application if its process exits, while this workspace remains active:
+Conversion workers and job storage run in this managed workspace at port 8000. Alibaba Cloud is the public HTTPS ingress and tunnel endpoint; it does not process uploaded documents or images.
 
-```sh
-nohup ./scripts/serve.sh > service.log 2>&1 </dev/null &
+```mermaid
+flowchart LR
+    Browser[Browser] -->|HTTPS| Edge[Alibaba Cloud Caddy]
+    Edge -->|Internal Docker network| Tunnel[Authenticated tunnel server]
+    Tunnel -->|Encrypted reverse tunnel| Workspace[Current workspace :8000]
 ```
 
-This does not keep the workspace itself alive, restore it after deletion, or create public ingress. Startup after workspace recreation requires the platform's lifecycle configuration.
+## DNS and TLS
+
+Alibaba Cloud DNS has an enabled A record: host `convert`, value `47.116.190.234`, TTL 600 seconds. The existing Caddy ingress redirects HTTP to HTTPS and issues/renews the certificate. The additional site configuration is in `deploy/relay.Caddyfile`.
+
+The existing Caddy container is `wmu-campus-wall-portal-edge`. It now also joins a dedicated internal Docker network, `lumo_convert_relay`. Container `lumo-convert-tunnel` listens on ports 19001 and 18000 inside that network. Neither tunnel port is published on the host. The relay has a restart policy, 128 MB memory limit and restricted forwarding credentials. Caddy's earlier configuration is backed up at `/opt/lumo-convert-relay/Caddyfile.before-convert`.
+
+## Workspace processes
+
+Keep two processes running in persistent execution sessions:
+
+```sh
+./scripts/serve.sh
+./deploy/start-tunnel.sh
+```
+
+The first supervises the app. The second uses Chisel 1.12.0 and reconnects automatically through the inherited HTTPS proxy, with TLS verification and a pinned server public-key fingerprint. Its reverse target is `R:0.0.0.0:18000:127.0.0.1:8000` inside the relay container. The domain only reaches the app while this workspace and its tunnel remain active. Workspace recreation requires restoring dependencies, private tunnel credentials, job storage, and its startup sessions.
+
+The tunnel executable is `.local/bin/chisel`; it was checked against the publisher's SHA-256 checksum. Credentials and the fingerprint are stored in `.secrets/`, with private file permissions, and are excluded from Git. The server has separately protected authentication and key files. Deployment credentials are never included in the public repository.
 
 ## Verified
 
-- A streaming upload larger than 25 MB converted successfully.
-- Markdown to DOCX/PDF, CSV to XLSX, PNG to WebP, PDF to TXT.
-- A broken image failed independently; the other queued jobs completed.
-- ZIP output integrity and unsupported-format rejection.
-- Actual browser multi-file selection and conversion, desktop and mobile layout.
+- Local streaming upload larger than 25 MB.
+- Actual Markdown to DOCX/PDF, CSV to XLSX, PNG to WebP, PDF to TXT.
+- Broken image failure independent of the other jobs.
+- ZIP integrity and unsupported file rejection.
+- Browser multi-file selection/conversion, desktop and mobile layout.
+- DNS resolution, HTTPS health response, and HTTP-to-HTTPS redirect through the public domain.
+- Real document/image/sheet conversions and ZIP downloads through the public HTTPS URL.
+- Existing blog and portal health checks after the Caddy addition.
 
-Repeat the service integration checks with `python scripts/check_service.py` against localhost:8000. The test creates transient conversion jobs and their one-hour results.
+Check the running service locally:
 
-## Custom domain dependency
+```sh
+python scripts/check_service.py
+```
 
-The workspace reports only private network addresses. Runtime status reports no configured ingress capability or outbound identity. The available environment tools do not offer a public port mapping operation. A stable public endpoint accepting inbound HTTPS is still required to serve **convert.lumoren.cn** from this workspace.
+Check small fixtures through the public domain:
 
-Once the platform supplies an endpoint, configure its custom-domain route, add the matching DNS A/CNAME record for `convert`, configure TLS and confirm access externally. Caddy configuration is included for a host with real public inbound ports. DNS has not been changed because there is no verified endpoint to point it at.
+```sh
+python scripts/check_service.py --base-url https://convert.lumoren.cn --skip-large
+```
 
-Docker Compose configuration validates, but building the optional container encountered Docker Hub's HTTP 429 rate limit. The running workspace service uses installed tools directly, so this does not affect its current local operation.
+These checks create temporary jobs and one-hour results. The optional application Docker configuration validates, but its image build was interrupted by Docker Hub's HTTP 429 rate limit. The active workspace app uses installed conversion components directly.
+
+## Recovery
+
+After a workspace interruption, restore `.secrets/` privately and start the two workspace processes. Check `/api/health` through the public hostname. If the existing Caddy container is recreated by its original Compose project, reconnect it to the dedicated network with `docker network connect lumo_convert_relay wmu-campus-wall-portal-edge`. Normal container/host restarts preserve the connection. Do not change the DNS A record when restarting the workspace: the ingress address remains the same.
+
+To roll back only the Caddy addition, restore the backup into the mounted config file in place, validate and reload Caddy. The relay container and its dedicated network can then be removed after disconnecting Caddy. Preserve the existing site's other networks, volumes and configuration.

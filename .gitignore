@@ -8,3 +8,5 @@ build/
 data/
 *.log
 .pytest_cache/
+.local/
+.secrets/

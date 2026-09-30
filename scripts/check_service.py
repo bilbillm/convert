@@ -1,4 +1,5 @@
 """Exercise real conversions against a running server; no credentials required."""
+import argparse
 import base64
 import io
 import json
@@ -9,7 +10,11 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-BASE = 'http://127.0.0.1:8000'
+parser = argparse.ArgumentParser()
+parser.add_argument('--base-url', default='http://127.0.0.1:8000')
+parser.add_argument('--skip-large', action='store_true')
+args = parser.parse_args()
+BASE = args.base_url.rstrip('/')
 
 
 def request(path, data=None, content_type=None):
@@ -35,10 +40,11 @@ def wait(job):
 png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
 with tempfile.TemporaryFile() as large:
     large.write(png)
-    large.write(b'\0' * (26 * 1024 * 1024))
+    if not args.skip_large:
+        large.write(b'\0' * (26 * 1024 * 1024))
     large.seek(0)
     # urllib streams a file-like request rather than retaining the upload in RAM.
-    large_job = submit('over-25mb.png', 'webp', large)
+    large_job = submit('image.png' if args.skip_large else 'over-25mb.png', 'webp', large)
 
 cases = [('notes.md', 'docx', b'# Hello\n\nConversion example.'), ('notes.md', 'pdf', b'# Hello\n\nConversion example.'), ('table.csv', 'xlsx', b'name,value\nfirst,42\n'), ('broken.png', 'jpg', b'invalid image')]
 job_ids = [submit(*case) for case in cases]
@@ -65,4 +71,4 @@ except urllib.error.HTTPError as exc:
     assert exc.code == 400
 else:
     raise AssertionError('Unsupported file accepted')
-print('PASS: large streaming upload, document/PDF/image/sheet conversions, isolated failure, ZIP and type validation')
+print('PASS: streaming upload, document/PDF/image/sheet conversions, isolated failure, ZIP and type validation; large upload:', not args.skip_large)

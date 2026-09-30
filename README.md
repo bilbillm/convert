@@ -1,6 +1,6 @@
 # Lumo Convert
 
-A Chinese document and image converter with an Apple-inspired interface, batch queues, individual downloads and ZIP downloads. Intended hostname: **convert.lumoren.cn**. Runtime target: this managed workspace.
+A Chinese document and image converter with an Apple-inspired interface, batch queues, individual downloads and ZIP downloads. Public website: **https://convert.lumoren.cn/**. Runtime target: this managed workspace.
 
 ## Uploads and privacy
 
@@ -38,6 +38,6 @@ docker compose up --build -d
 docker compose -f compose.yaml -f compose.public.yaml up --build -d
 ```
 
-Point DNS host `convert` to a verified stable public IP (A record), or to a supported hostname (CNAME). This workspace currently exposes private addresses; no stable public ingress has been confirmed. Do not point the domain to an unrelated host or claim production is live without checking it externally. Keeping this workspace running and retaining its disk is required for availability.
+Point DNS host `convert` to a verified stable public IP (A record), or to a supported hostname (CNAME). The active deployment uses Alibaba Cloud Caddy as the HTTPS ingress and an authenticated reverse tunnel to this workspace. See DEPLOYMENT.md. Keeping this workspace, its tunnel, and its disk active is required for availability.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, `nohup ./scripts/serve.sh > service.log 2>&1 </dev/null &` starts a restart loop. This does not provide a persistent public ingress or keep the managed workspace alive.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, run `./scripts/serve.sh` and `./deploy/start-tunnel.sh` in persistent execution sessions. Their restart/reconnect behavior does not keep the managed workspace itself alive.
