@@ -16,7 +16,7 @@ python -m venv .venv
 PATH="$PWD/.venv/bin:$PATH" ./run.sh
 ```
 
-The service listens on port 8000. Configure `DATA_DIR`, `CONVERSION_WORKERS` (default 2), `CONVERSION_TIMEOUT_SECONDS` (default 600), and `RESULT_TTL_SECONDS` (default 3600). Use one Uvicorn process because the queue is in-process. Restarting removes interrupted jobs; successfully completed results remain until expiry.
+The service listens on port 8000. Configure `DATA_DIR`, `CONVERSION_WORKERS` (default 2), `CONVERSION_TIMEOUT_SECONDS` (default 600), and `RESULT_TTL_SECONDS` (default 3600). Use one Uvicorn process because the queue is in-process. Restarting marks interrupted jobs as failed with a retry message; successfully completed results remain until expiry.
 
 ## Format support
 
@@ -40,4 +40,4 @@ docker compose -f compose.yaml -f compose.public.yaml up --build -d
 
 Point DNS host `convert` to a verified stable public IP (A record), or to a supported hostname (CNAME). The active deployment uses Alibaba Cloud Caddy as the HTTPS ingress and an authenticated reverse tunnel to this workspace. See DEPLOYMENT.md. Keeping this workspace, its tunnel, and its disk active is required for availability.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, run `./scripts/serve.sh` and `./deploy/start-tunnel.sh` in persistent execution sessions. Their restart/reconnect behavior does not keep the managed workspace itself alive.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, use `docker compose -f compose.yaml -f compose.workspace.yaml up --build -d` with `CONVERT_PROXY_IP` set as described in DEPLOYMENT.md. Container supervision keeps the app and tunnel independent of tool sessions. The managed workspace must remain running. See [LOGGING.md](LOGGING.md) for private structured logs and troubleshooting.

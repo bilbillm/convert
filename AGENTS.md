@@ -15,3 +15,8 @@ Lumo Convert runs in the current managed workspace. The public domain is convert
 
 - Keep .secrets/ and .local/ excluded from Git. Never publish tunnel credentials or private keys.
 - Verify public ingress after changes using the small-fixture service check.
+
+- Run production app/tunnel with the workspace Compose override, never tool-session processes.
+- Use structured events and correlation IDs; never log upload contents, filenames, raw URLs/query strings, headers, credentials or raw converter stderr.
+- Keep logs private, rotated and excluded from Git/build context; no public log download endpoint.
+- Verify public health, real conversions, log privacy and automatic recovery after runtime changes.
