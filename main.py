@@ -7,6 +7,10 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import logging
+import time
+import hashlib
+from observability import RequestLogging, event
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +127,15 @@ PANDOC_OUTPUTS = {
 PANDOC_ONLY_INPUTS = {"md", "mdown", "mkd", "markdown", "gfm", "epub", "fb2", "tex", "latex", "rst", "org"}
 
 app = FastAPI(title="Lumo Convert", docs_url=None, redoc_url=None)
+app.add_middleware(RequestLogging)
+
+@app.on_event("startup")
+def log_startup():
+    event("app", "application.started", workers=int(os.getenv("CONVERSION_WORKERS", "2")))
+
+@app.on_event("shutdown")
+def log_shutdown():
+    event("app", "application.stopping")
 
 
 class ConversionError(Exception):
@@ -165,12 +178,20 @@ def target_formats(extension: str) -> list[str]:
 
 
 def run_tool(command: list[str], timeout: int = CONVERSION_TIMEOUT_SECONDS) -> None:
+    started = time.monotonic()
+    tool = Path(command[0]).name
+    event("app", "converter.started", tool=tool, timeout_seconds=timeout)
     try:
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
     except FileNotFoundError as exc:
+        event("app", "converter.missing", level=logging.ERROR, exc_info=True, tool=tool)
         raise ConversionError("服务器缺少所需的转换组件，请联系管理员。", 503) from exc
     except subprocess.TimeoutExpired as exc:
+        event("app", "converter.timeout", level=logging.ERROR, exc_info=True, tool=tool, duration_ms=round((time.monotonic()-started)*1000, 2))
         raise ConversionError("转换耗时过长，请尝试较小的文件。", 504) from exc
+    event("app", "converter.finished", level=logging.ERROR if result.returncode else logging.INFO,
+          tool=tool, exit_code=result.returncode, duration_ms=round((time.monotonic()-started)*1000, 2),
+          stderr_bytes=len(result.stderr), stderr_sha256=hashlib.sha256(result.stderr).hexdigest() if result.stderr else None)
     if result.returncode != 0:
         raise ConversionError("转换失败。请检查文件是否完整，以及所选格式是否兼容。")
 
@@ -384,9 +405,11 @@ def convert(file: UploadFile = File(...), target_format: str = Form(...)) -> Fil
         shutil.rmtree(workdir, ignore_errors=True)
         raise
     except ConversionError as exc:
+        event("app", "conversion.failed", level=logging.ERROR, exc_info=True, status=exc.status_code)
         shutil.rmtree(workdir, ignore_errors=True)
         raise HTTPException(exc.status_code, exc.message) from exc
     except Exception as exc:
+        event("app", "conversion.exception", level=logging.ERROR, exc_info=True)
         shutil.rmtree(workdir, ignore_errors=True)
         raise HTTPException(500, "转换服务暂时不可用，请稍后再试。") from exc
 

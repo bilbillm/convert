@@ -1,6 +1,23 @@
 # Append this site to the existing public Caddy configuration.
 # Caddy and lumo-convert-tunnel share a dedicated internal Docker network.
 convert.lumoren.cn {
+    log {
+        output file /data/convert-access.jsonl {
+            roll_size 10MiB
+            roll_keep 5
+            roll_keep_for 168h
+        }
+        format filter {
+            wrap json
+            fields {
+                request>headers delete
+                request>uri delete
+                request>remote_ip delete
+                request>client_ip delete
+                resp_headers>Set-Cookie delete
+            }
+        }
+    }
     encode zstd gzip
     header {
         -Server
