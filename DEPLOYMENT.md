@@ -1,75 +1,92 @@
 # Deployment
 
 Public URL: **https://convert.lumoren.cn/**
+
 Source: https://github.com/bilbillm/convert
 
-## Where the application runs
+## Direct server deployment (2026-10-24)
 
-Conversion workers and job storage run in this managed workspace at port 8000. Alibaba Cloud is the public HTTPS ingress and tunnel endpoint; it does not process uploaded documents or images.
+The application now runs on the Alibaba Cloud ingress server itself, from `/srv/convert`. Previously Caddy forwarded to a reverse tunnel into a separate workspace. That application was unavailable and the public domain returned HTTP 502. The direct deployment removes that workspace dependency.
 
-```mermaid
-flowchart LR
-    Browser[Browser] -->|HTTPS| Edge[Alibaba Cloud Caddy]
-    Edge -->|Internal Docker network| Tunnel[Authenticated tunnel server]
-    Tunnel -->|Encrypted reverse tunnel| Workspace[Current workspace :8000]
-```
+Traffic flows from HTTPS Caddy (`wmu-campus-wall-portal-edge`) to `lumo-convert-server:8000` on the existing private Docker network `lumo_convert_relay`. DNS and TLS are unchanged. Only the `convert.lumoren.cn` site block changes; other domains retain their configuration. The old tunnel container and credentials are retained for rollback, but application traffic no longer uses them.
 
-## DNS and TLS
-
-Alibaba Cloud DNS has an enabled A record: host `convert`, value `47.116.190.234`, TTL 600 seconds. The existing Caddy ingress redirects HTTP to HTTPS and issues/renews the certificate. The additional site configuration is in `deploy/relay.Caddyfile`.
-
-The existing Caddy container is `wmu-campus-wall-portal-edge`. It now also joins a dedicated internal Docker network, `lumo_convert_relay`. Container `lumo-convert-tunnel` listens on ports 19001 and 18000 inside that network. Neither tunnel port is published on the host. The relay has a restart policy, 128 MB memory limit and restricted forwarding credentials. Caddy's earlier configuration is backed up at `/opt/lumo-convert-relay/Caddyfile.before-convert`.
-
-## Workspace processes
-
-The application and Chisel tunnel now run in Docker container `lumo-convert-workspace`, independently of tool execution sessions. Docker uses `restart: unless-stopped`; container PID 1 supervises both children, logs their exits and restarts them after three seconds. The application is restarted after three consecutive failed local health probes. Public HTTPS is probed every 30 seconds and failures are logged. The tunnel reconnects through the inherited proxy with TLS verification and its pinned fingerprint.
+The server runs Docker Compose with the existing PID 1 supervisor:
 
 ```sh
-mkdir -p data logs
-chmod 700 logs
-export CONVERT_PROXY_IP=$(getent ahostsv4 proxy | awk 'NR==1{print $1}')
-docker compose -f compose.yaml -f compose.workspace.yaml up --build -d
+cd /srv/convert
+docker compose -f compose.yaml -f compose.server.yaml up --build -d
 ```
 
-The workspace override preserves existing `data/`, mounts private credentials read-only and writes logs to `logs/`. It uses the combined system CA bundle for the session proxy. Chisel 1.12.0 remains in `.local/bin/chisel`; its publisher checksum was verified. `.secrets/`, `.local/`, uploads, results and logs are excluded from Git and Docker build context.
+The override uses one conversion worker, a 768 MB memory limit, one CPU and a 512 MB temporary filesystem to fit the server alongside its existing services. Large or complex files may exceed these resources. There is no application upload size cap. The root filesystem is read-only, privileges are dropped and the service has no published host application port. The application shares the private relay network with Caddy.
 
-The generic Compose configuration runs only the application; `compose.workspace.yaml` enables the authenticated tunnel. Neither requires an interactive tool session to remain open. Docker daemon restarts recover the container, but the managed environment itself must stay running. Destruction/recreation of the workspace still requires restoring dependencies, image, data and private tunnel credentials. An intentional `docker stop` suppresses automatic restart until it is explicitly started again.
+Named volumes `convert_conversion_data` and `convert_conversion_logs` persist jobs and private rotated logs across container recreation. Do not use `down --volumes` during updates. Original uploads are deleted after processing; results expire after one hour. No previous workspace data was copied to this server.
 
-## Verified
+## HTTPS ingress
 
+The active Caddy configuration is mounted from:
+
+```text
+/home/admin/wmu-campus-wall/.runtime/production-sites/Caddyfile
+```
+
+Use the site block in `deploy/server.Caddyfile`. Before changing the active file, preserve a backup in `/opt/lumo-convert-relay/`; edit the file in place so the existing bind mount sees the update. Validate before reloading:
+
+```sh
+docker exec wmu-campus-wall-portal-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec wmu-campus-wall-portal-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+Caddy must remain on `lumo_convert_relay`. If its original Compose project recreates it without this network, reconnect it with `docker network connect lumo_convert_relay wmu-campus-wall-portal-edge` before reloading. Do not modify DNS to recover an application container.
+
+## Build with the host's existing proxy
+
+The server has an existing loopback HTTP proxy. If a standard Compose build cannot download dependencies promptly, build using that proxy, then run Compose without `--build`:
+
+```sh
+docker build --network host \
+  --build-arg HTTP_PROXY --build-arg HTTPS_PROXY --build-arg ALL_PROXY \
+  --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
+  -t lumo-convert:local .
+docker compose -f compose.yaml -f compose.server.yaml up -d
+```
+
+These special Docker proxy arguments are used at build time; no proxy credentials or tunnel keys are placed in the source or image. Runtime conversion remains on private Docker networks. Do not change the system proxy or other services to build this application.
+
+## Verification
+
+```sh
+curl --fail https://convert.lumoren.cn/api/health
+python3 scripts/check_service.py --base-url https://convert.lumoren.cn --skip-large
+docker exec lumo-convert-server python scripts/check_service.py
+```
+
+The service check creates small temporary jobs, exercises actual document/PDF/image/spreadsheet conversion, verifies independent invalid-file failure and tests ZIP integrity and type validation. The local default additionally uploads more than 25 MB. Completed results expire normally.
+
+Private log checks run inside the image without host Python dependencies:
+
+```sh
+docker exec lumo-convert-server python scripts/test_logging.py
+```
+
+Inspect only filtered operational events when troubleshooting; never publish uploads, task metadata, keys or raw logs. See `LOGGING.md` for event names and privacy rules. In the server deployment, logs live in the named Docker volume rather than a checkout `logs/` directory.
+
+## Verified on 2026-10-24
+
+- Public HTTPS health and HTTP-to-HTTPS redirect after migration.
+- Actual Markdown to DOCX/PDF, CSV to XLSX, PNG to WebP and PDF to text through the public domain; valid ZIP and independent invalid-image failure.
 - Local streaming upload larger than 25 MB.
-- Actual Markdown to DOCX/PDF, CSV to XLSX, PNG to WebP, PDF to TXT.
-- Broken image failure independent of the other jobs.
-- ZIP integrity and unsupported file rejection.
-- Browser multi-file selection/conversion, desktop and mobile layout.
-- DNS resolution, HTTPS health response, and HTTP-to-HTTPS redirect through the public domain.
-- Real document/image/sheet conversions and ZIP downloads through the public HTTPS URL.
-- Existing blog and portal health checks after the Caddy addition.
+- Browser layouts at 1440, 768, 390 and 320 pixels without horizontal overflow; native file selection, mixed batch, individual download, ZIP and no script errors.
+- Staggered CSS entrances, hover/focus feedback, file-row entrances and drag feedback; reduced-motion mode disables animations, transitions and smooth scrolling.
+- Three existing privacy, log rotation and interrupted-job recovery tests.
+- Application child termination followed by supervisor recovery; simulated supervisor crash followed by Docker restart; completed result remained downloadable through HTTPS after both.
+- Blog, campus portal, study and dashboard endpoints remained HTTP 200 after the ingress update.
 
-Check the running service locally:
+The ingress backup for this migration is `/opt/lumo-convert-relay/Caddyfile.before-direct-20261024`. Browser QA installed supporting graphics libraries on the host; it did not upgrade existing packages.
 
-```sh
-python scripts/check_service.py
-```
+## Recovery and rollback
 
-Check small fixtures through the public domain:
+Compose sets `restart: unless-stopped`; PID 1 independently supervises the application and restarts it after a child exit or three failed local health probes. Both host restarts and container recreation preserve named volumes. A deliberate `docker stop` suppresses automatic restart until explicitly started again.
 
-```sh
-python scripts/check_service.py --base-url https://convert.lumoren.cn --skip-large
-```
+For an interface-only rollback, restore `static/index.html` from the desired Git revision, rebuild the image and run the same Compose command. Preserve the data and log volumes.
 
-These checks create temporary jobs and one-hour results. The optional application Docker configuration validates, but its image build was interrupted by Docker Hub's HTTP 429 rate limit. The active workspace app uses installed conversion components directly.
-
-## Recovery
-
-After workspace recreation, restore `.secrets/` and `.local/bin/chisel` privately and run the Compose command above. For an existing deployment, inspect `docker inspect lumo-convert-workspace` and the private logs before using `docker compose -f compose.yaml -f compose.workspace.yaml up -d`. Check `/api/health` through the public hostname. If the existing Caddy container is recreated by its original Compose project, reconnect it to the dedicated network with `docker network connect lumo_convert_relay wmu-campus-wall-portal-edge`. Normal container/host restarts preserve the connection. Do not change the DNS A record when restarting the workspace: the ingress address remains the same.
-
-To roll back only the Caddy addition, restore the backup into the mounted config file in place, validate and reload Caddy. The relay container and its dedicated network can then be removed after disconnecting Caddy. Preserve the existing site's other networks, volumes and configuration.
-
-## Incident and validation: 2026-09-30
-
-The earlier deployment's app and tunnel were tool-session processes. Both disappeared while the managed environment remained running; the relay recorded the tunnel closing at 08:34:55 UTC, and the site returned 502. They were replaced with container supervision and a Docker restart policy.
-
-Verified after migration: real public Markdown to DOCX/PDF, CSV to XLSX, PNG to WebP, PDF to TXT, independent invalid-image failure, valid ZIP, local upload over 25 MB, request/job correlation, private exception traces, log rotation and permissions. Forced app and tunnel exits recovered automatically. Killing the container supervisor from the outer environment triggered Docker automatic restart and restored HTTPS. Completed job metadata survived app/container restarts.
-
-See [LOGGING.md](LOGGING.md) for logs, limits, incident queries and known visibility boundaries.
+For an ingress rollback, restore the pre-migration Caddy backup in place, validate and reload it. The old tunnel deployment will only serve successfully if its separate workspace and tunnel client are restored. The historical files `compose.workspace.yaml` and `deploy/relay.Caddyfile` document that topology; they are not the active server configuration.

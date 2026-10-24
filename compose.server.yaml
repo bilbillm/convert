@@ -1,0 +1,26 @@
+# Direct deployment on the existing Alibaba Cloud HTTPS ingress host.
+# docker compose -f compose.yaml -f compose.server.yaml up --build -d
+services:
+  convert:
+    container_name: lumo-convert-server
+    ports: !reset []
+    environment:
+      TUNNEL_ENABLED: "0"
+      CONVERSION_WORKERS: "1"
+    mem_limit: 768m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    stop_grace_period: 30s
+    networks:
+      - conversion
+      - relay
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+networks:
+  relay:
+    external: true
+    name: lumo_convert_relay

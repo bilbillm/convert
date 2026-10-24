@@ -1,6 +1,6 @@
 # Lumo Convert
 
-A Chinese document and image converter with an Apple-inspired interface, batch queues, individual downloads and ZIP downloads. Public website: **https://convert.lumoren.cn/**. Runtime target: this managed workspace.
+A Chinese document and image converter with a Swiss International Style interface, batch queues, individual downloads and ZIP downloads. Public website: **https://convert.lumoren.cn/**. Runtime target: the Alibaba Cloud server behind the public domain.
 
 ## Uploads and privacy
 
@@ -38,6 +38,13 @@ docker compose up --build -d
 docker compose -f compose.yaml -f compose.public.yaml up --build -d
 ```
 
-Point DNS host `convert` to a verified stable public IP (A record), or to a supported hostname (CNAME). The active deployment uses Alibaba Cloud Caddy as the HTTPS ingress and an authenticated reverse tunnel to this workspace. See DEPLOYMENT.md. Keeping this workspace, its tunnel, and its disk active is required for availability.
+The active deployment runs the application directly on the Alibaba Cloud server, on the private Docker network shared with its existing Caddy ingress. It no longer depends on a reverse tunnel or a separate workspace. DNS and HTTPS stay on `convert.lumoren.cn`.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for observed runtime status and verified checks. In this workspace, use `docker compose -f compose.yaml -f compose.workspace.yaml up --build -d` with `CONVERT_PROXY_IP` set as described in DEPLOYMENT.md. Container supervision keeps the app and tunnel independent of tool sessions. The managed workspace must remain running. See [LOGGING.md](LOGGING.md) for private structured logs and troubleshooting.
+```sh
+# On the ingress server, with the existing lumo_convert_relay network:
+docker compose -f compose.yaml -f compose.server.yaml up --build -d
+```
+
+Install the site block from `deploy/server.Caddyfile` in the existing Caddy configuration, validate and reload it. Preserve other domains. The server override uses one conversion worker, a 768 MB memory ceiling, a 512 MB temporary filesystem and bounded Docker logs. Application data and private logs persist in Docker volumes; completed results expire after one hour.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment, verification and rollback. The old `compose.workspace.yaml` and `deploy/relay.Caddyfile` remain available for the historical workspace/tunnel deployment. See [LOGGING.md](LOGGING.md) for private structured logs.
