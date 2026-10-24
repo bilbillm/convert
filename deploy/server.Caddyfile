@@ -1,3 +1,4 @@
+# Requires the existing private_auth forward-auth snippet and the lumo-private Authelia rule.
 # Direct server deployment. Caddy and lumo-convert-server share lumo_convert_relay.
 convert.lumoren.cn {
     log {
@@ -25,6 +26,7 @@ convert.lumoren.cn {
         Referrer-Policy same-origin
     }
     handle {
+        import private_auth
         reverse_proxy lumo-convert-server:8000 {
             flush_interval -1
         }

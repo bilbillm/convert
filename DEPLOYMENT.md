@@ -1,6 +1,6 @@
 # Deployment
 
-Public URL: **https://convert.lumoren.cn/**
+Protected URL: **https://convert.lumoren.cn/**
 
 Source: https://github.com/bilbillm/convert
 
@@ -90,3 +90,17 @@ Compose sets `restart: unless-stopped`; PID 1 independently supervises the appli
 For an interface-only rollback, restore `static/index.html` from the desired Git revision, rebuild the image and run the same Compose command. Preserve the data and log volumes.
 
 For an ingress rollback, restore the pre-migration Caddy backup in place, validate and reload it. The old tunnel deployment will only serve successfully if its separate workspace and tunnel client are restored. The historical files `compose.workspace.yaml` and `deploy/relay.Caddyfile` document that topology; they are not the active server configuration.
+
+## Unified login (2026-10-24)
+
+The production domain now uses the Caddy `private_auth` wrapper around the existing `admin_auth` snippet and Authelia's `lumo-private` rule. The `lumoren` account is authorized; existing campus-wall operators keep their original access and are not automatically granted private tools. Session cookies cover `lumoren.cn`; public display sites and Study keep their existing access behavior. Credentials stay in the private Authelia file backend and are never committed here.
+
+Unauthenticated API requests receive 401; browser navigation redirects to the existing unified login portal. Uploads, task queries, results and ZIP downloads all pass the same gate. The interface handles expired sessions and provides a unified logout link. The internal container health probe remains local and requires no cookie.
+
+Run the local service check inside the container as before. For HTTPS verification, sign in first and supply a temporary authenticated Cookie header through an environment variable:
+
+```sh
+python3 scripts/check_service.py --base-url https://convert.lumoren.cn --skip-large --cookie-env CONVERT_SESSION_COOKIE
+```
+
+Do not place the cookie value in command arguments, committed files or logs. The shared gateway's active configuration and private Authelia backup are recorded in `/srv/lumoren-access/`.

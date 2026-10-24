@@ -3,6 +3,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import tempfile
 import time
 import urllib.error
@@ -13,12 +14,18 @@ import zipfile
 parser = argparse.ArgumentParser()
 parser.add_argument('--base-url', default='http://127.0.0.1:8000')
 parser.add_argument('--skip-large', action='store_true')
+parser.add_argument('--cookie-env', help='Read an authenticated Cookie header from this environment variable')
 args = parser.parse_args()
 BASE = args.base_url.rstrip('/')
+SESSION_COOKIE = os.environ.get(args.cookie_env, '') if args.cookie_env else ''
+if args.cookie_env and not SESSION_COOKIE:
+    parser.error('The selected session-cookie environment variable is empty')
 
 
 def request(path, data=None, content_type=None):
     headers = {'Content-Type': content_type} if content_type else {}
+    if SESSION_COOKIE:
+        headers['Cookie'] = SESSION_COOKIE
     return urllib.request.urlopen(urllib.request.Request(BASE + path, data=data, headers=headers), timeout=60)
 
 
